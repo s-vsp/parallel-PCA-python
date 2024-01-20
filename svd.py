@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from ucimlrepo import fetch_ucirepo
 from numba import njit, jit, prange
 
+from sklearn.decomposition import PCA
+
 
 @njit(parallel=True)
 def parallel_matrix_multiplication(a, b):
@@ -103,15 +105,9 @@ def svd(M: np.ndarray):  # m x n
     eigen_vals, eigen_vects = qr_algorithm(X)  # n x 1, n x n
     eigen_vals, eigen_vects = parallel_sort(eigen_vals, eigen_vects)
     singular_vals = np.sqrt(eigen_vals)
-    sigma = np.eye(M.shape[0])  # m x m
-    temp = np.ones(shape=(M.shape[0],))
-    temp[:singular_vals.shape[0]] = singular_vals
-    sigma *= temp  # m x m
-    sigma_inv = np.linalg.inv(sigma)  # m x m
+    sigma = np.diag(np.squeeze(singular_vals))
     V = eigen_vects  # n x n
-    V_T = parallel_transpose(V)  # n x n
-    U = parallel_matrix_multiplication(M, parallel_matrix_multiplication(V, sigma_inv))
-    return U, sigma, V_T
+    return sigma, V
 
 
 def load_data():
@@ -185,15 +181,77 @@ if __name__ == "__main__":
     X, y = load_data()
     X = X.to_numpy()
     y = y["Diagnosis"].map({"M": 0, "B": 1})
-    U, S, _ = svd(X)
-    W = U[:, :2]
+
+    sigma, V = svd(X)
+    print(sigma.shape, V.shape)
+    W = V[:, :2]
     X_low = parallel_matrix_multiplication(X, W)
 
-    print(S)
-    plt.plot(S.diagonal()[:10]/sum(S.diagonal()), 'bo')
+    components = np.array([np.squeeze(W[:,:1]), np.squeeze(W[:,1:2])])
+
+    # plot explained variance
+    plt.plot(sigma.diagonal()[:10]/sum(sigma.diagonal()), 'bo')
     plt.show()
 
+    # plot reduced dataset
     plt.figure(figsize=(8, 8))
     plt.scatter(X_low[:, 0], X_low[:, 1], c=y.to_numpy())
+    plt.show()
+
+    # sklearn comparison check
+    pca = PCA(n_components=2)
+    X_low_sklearn = pca.fit_transform(X)
+
+    # plot sklearn reduced dataset
+    plt.figure(figsize=(8, 8))
+    plt.scatter(X_low_sklearn[:, 0], X_low_sklearn[:, 1], c=y.to_numpy())
+    plt.show()
+
+    print(pca.components_)
+
+    max_comp = max(pca.components_.max(), components.max())
+    min_comp = min(pca.components_.min(), components.min())
+    # max_comp = pca.components_.max()
+    # min_comp = pca.components_.min()
+
+    pca_components = pca.components_
+
+    # Create separate plots for each component
+    fig, axs = plt.subplots(2, 2, figsize=(10, 8))
+
+    # Plot the first principal component
+    axs[0][0].imshow(pca_components[0].reshape(1, -1), cmap='viridis', vmin=min_comp, vmax=max_comp, aspect='auto',
+                  extent=[0, 30, 0, 1])
+    axs[0][0].set_title('sklearn PCA Component 1')
+    axs[0][0].set_xlabel('Feature Index')
+    axs[0][0].set_yticks([])
+
+    # Plot the second principal component
+    im2 = axs[0][1].imshow(pca_components[1].reshape(1, -1), cmap='viridis', vmin=min_comp, vmax=max_comp, aspect='auto',
+                  extent=[0, 30, 0, 1])
+    axs[0][1].set_title('sklearn PCA Component 2')
+    axs[0][1].set_xlabel('Feature Index')
+    axs[0][1].set_yticks([])
+
+    # Plot the first principal component
+    axs[1][0].imshow(components[0].reshape(1, -1), cmap='viridis', vmin=min_comp, vmax=max_comp, aspect='auto',
+                  extent=[0, 30, 0, 1])
+    axs[1][0].set_title('custom PCA Component 1')
+    axs[1][0].set_xlabel('Feature Index')
+    axs[1][0].set_yticks([])
+
+    # Plot the second principal component
+    axs[1][1].imshow(components[1].reshape(1, -1), cmap='viridis', vmin=min_comp, vmax=max_comp, aspect='auto',
+                  extent=[0, 30, 0, 1])
+    axs[1][1].set_title('custom PCA Component 2')
+    axs[1][1].set_xlabel('Feature Index')
+    axs[1][1].set_yticks([])
+
+    cbar_ax = fig.add_axes([0.94, 0.15, 0.02, 0.7])  # [left, bottom, width, height]
+    cbar = fig.colorbar(im2, cax=cbar_ax, orientation='vertical')
+    # Adjust layout
+    plt.tight_layout(pad=5.0)
+
+    # Show the plot
     plt.show()
     #########################################
